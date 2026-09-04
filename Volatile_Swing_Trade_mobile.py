@@ -281,26 +281,28 @@ if "res_df" in st.session_state and not st.session_state["res_df"].empty:
         pass
 
   if selected_rows and selected_rows[0] != st.session_state["last_selected_row"]:
-    st.session_state["last_selected_row"] = selected_rows[0]
     row_idx = selected_rows[0]
-    selected_row_data = df_display.iloc[row_idx]
+    # Safety check to prevent out-of-bounds IndexError if the dataframe changed size
+    if row_idx < len(df_display):
+      st.session_state["last_selected_row"] = row_idx
+      selected_row_data = df_display.iloc[row_idx]
 
-    st.session_state["calc_tk"] = str(selected_row_data["Ticker"])
-    st.session_state["calc_en"] = float(
-        str(selected_row_data["Price"]).replace("$", "").replace(",", "")
-    )
-    st.session_state["calc_st"] = float(
-        str(selected_row_data["Stop Loss ($)"])
-        .replace("$", "")
-        .replace(",", "")
-    )
-    st.session_state["calc_tp"] = float(
-        str(selected_row_data["Take Profit ($)"])
-        .replace("$", "")
-        .replace(",", "")
-    )
-    st.session_state["calc_sh"] = int(selected_row_data["Shares"])
-    st.rerun()
+      st.session_state["calc_tk"] = str(selected_row_data["Ticker"])
+      st.session_state["calc_en"] = float(
+          str(selected_row_data["Price"]).replace("$", "").replace(",", "")
+      )
+      st.session_state["calc_st"] = float(
+          str(selected_row_data["Stop Loss ($)"])
+          .replace("$", "")
+          .replace(",", "")
+      )
+      st.session_state["calc_tp"] = float(
+          str(selected_row_data["Take Profit ($)"])
+          .replace("$", "")
+          .replace(",", "")
+      )
+      st.session_state["calc_sh"] = int(selected_row_data["Shares"])
+      st.rerun()
 
   if "calc_tk" not in st.session_state:
     st.session_state["calc_tk"] = str(df_display.iloc[0]["Ticker"])
