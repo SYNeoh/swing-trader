@@ -12,20 +12,17 @@ st.title("📊 Volatility Swing Trader & Risk Manager")
 
 @st.cache_data
 def fetch_sp500_tickers():
-  # Direct pull from reliable Wikipedia source table via pandas
   try:
     url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
     tables = pd.read_html(url)
     df = tables[0]
     tickers = df["Symbol"].tolist()
-    # Clean up any ticker formatting (e.g., BRK.B -> BRK-B for Yahoo Finance)
     tickers = [str(t).replace(".", "-").strip() for t in tickers]
     if len(tickers) > 400:
       return tickers
   except Exception:
     pass
 
-  # Backup source if Wikipedia is blocked
   try:
     url = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv"
     df = pd.read_csv(url)
@@ -185,23 +182,49 @@ if st.sidebar.button("🔍 Run Screener Scan", type="primary"):
               continue
 
           stop_distance = atr_mult * atr
+          if stop_distance <= 0 or np.isnan(stop_distance):
+            stop_distance = price * 0.02
+
           stop_loss = price - stop_distance
           shares = max(1, int(risk_budget // stop_distance))
           actual_risk = shares * stop_distance
+
           take_profit = price + (min_rr_req * stop_distance)
           actual_rr = (take_profit - price) / stop_distance
 
+          peaks, _ = find_peaks(df["High"].values, distance=15)
+          overhead_peaks = sorted(
+              [
+                  p
+                  for p in df["High"].iloc[peaks].values
+                  if p > (price * 1.005)
+              ]
+          )
+
+          resistance_status = "Clear Target"
+          if overhead_peaks:
+            nearest_peak = overhead_peaks[0]
+            if nearest_peak < take_profit:
+              resistance_status = f"⚠️ Block @ ${nearest_peak:.2f}"
+            else:
+              resistance_status = f"Peak @ ${nearest_peak:.2f}"
+
           results.append({
               "Ticker": ticker,
-              "Price": round(price, 2),
-              "M-Cap ($B)": round(mcap_b, 1),
-              "Avg Vol (M)": round(avg_vol_m, 1),
-              "RVOL": round(rvol, 2),
-              "Stop Loss": round(stop_loss, 2),
-              "Take Profit": round(take_profit, 2),
+              "Price": f"${price:.2f}",
+              "M-Cap ($B)": f"${mcap_b:.1f}B",
+              "Avg Vol (M)": f"{avg_vol_m:.1f}M",
+              "RVOL": f"{rvol:.2f}x",
+              "Fast MA": f"${fast_ma_val:.2f}",
+              "Slow MA": f"${slow_ma_val:.2f}",
+              "Dist (%)": f"{dist_from_fast_pct:+.2f}%",
+              "Volatility (%)": f"{volatility_pct:.2f}%",
+              "Stop Loss ($)": f"${stop_loss:.2f}",
+              "Take Profit ($)": f"${take_profit:.2f}",
               "R:R Ratio": f"1:{actual_rr:.2f}",
               "Shares": shares,
-              "Max Risk ($)": round(actual_risk, 2),
+              "Max Risk ($)": f"${actual_risk:.2f}",
+              "Resistance": resistance_status,
           })
         except Exception:
           continue
@@ -217,3 +240,41 @@ if st.sidebar.button("🔍 Run Screener Scan", type="primary"):
     st.dataframe(res_df, use_container_width=True)
   else:
     st.warning("Scan finished, but no setups matched your criteria.")
+
+# --- SECTION 3: INTEGRATED EXECUTION PLAN & CALCULATOR ---
+st.markdown("---")
+st.subheader("3. Selected Setup Trade Execution Plan (Auto-Risk Lock)")
+
+col1, col2, col3, col4, col5 = st.columns(5)
+with col1:
+  calc_ticker = st.text_input("Ticker", value="GIS")
+with col2:
+  calc_entry = st.number_input("Entry Price ($)", value=39.26, format="%.2f")
+with col3:
+  calc_stop = st.number_input("Stop Loss ($)", value=37.46, format="%.2f")
+with col4:
+  calc_target = st.number_input(
+      "Take Profit ($)", value=42.86, format="%.2f"
+  )
+with col5:
+  calc_shares = st.number_input("Position (Shares)", value=19, min_value=1)
+
+try:
+  risk_per_share = calc_entry - calc_stop
+  if risk_per_share <= 0:
+    st.error("⚠️ Error: Stop loss must be lower than Entry price.")
+  else:
+    reward_per_share = calc_target - calc_entry
+    total_risk = calc_shares * risk_per_share
+    total_reward = calc_shares * reward_per_share
+    rr_ratio = reward_per_share / risk_per_share
+    total_capital = calc_shares * calc_entry
+
+    st.markdown(f"""
+        **[{calc_ticker.upper()}]** Capital Required: **${total_capital:,.2f}** &nbsp;|&nbsp; Shares: **{calc_shares}**  
+        Total Downside Risk : **${total_risk:,.2f}** &nbsp;(`$`.format({risk_per_share:.2f})/share)  
+        Total Potential Gain: **${total_reward:,.2f}**  
+        Risk / Reward Ratio : **1 : {rr_ratio:.2f}**
+        """)
+except Exception:
+  st.info("Fill out the execution fields above to preview your risk metrics.")
