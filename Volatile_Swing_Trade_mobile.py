@@ -233,7 +233,6 @@ if st.sidebar.button("🔍 Run Screener Scan", type="primary"):
 
   if results:
     st.session_state["res_df"] = pd.DataFrame(results)
-    # Initialize default selection to the first row on new scan
     first_row = st.session_state["res_df"].iloc[0]
     st.session_state["calc_tk"] = str(first_row["Ticker"])
     st.session_state["calc_en"] = float(
@@ -246,7 +245,7 @@ if st.sidebar.button("🔍 Run Screener Scan", type="primary"):
         str(first_row["Take Profit ($)"]).replace("$", "").replace(",", "")
     )
     st.session_state["calc_sh"] = int(first_row["Shares"])
-
+    st.session_state["last_selected_row"] = 0
     st.success(
         f"Scan complete! Scanned and found"
         f" {len(st.session_state['res_df'])} matching setups."
@@ -266,7 +265,13 @@ if "res_df" in st.session_state and not st.session_state["res_df"].empty:
       use_container_width=True,
   )
 
-  # Safely extract selection from event object/dict
+  # Initialize tracking variables if missing
+  if "last_selected_row" not in st.session_state:
+    st.session_state["last_selected_row"] = 0
+
+  df_display = st.session_state["res_df"]
+
+  # Safely extract selection
   selected_rows = []
   if event:
     try:
@@ -277,41 +282,40 @@ if "res_df" in st.session_state and not st.session_state["res_df"].empty:
       except Exception:
         pass
 
-  if selected_rows:
+  # Only update default calculator values if a NEW row is explicitly clicked
+  if selected_rows and selected_rows[0] != st.session_state["last_selected_row"]:
+    st.session_state["last_selected_row"] = selected_rows[0]
     row_idx = selected_rows[0]
-    selected_row_data = st.session_state["res_df"].iloc[row_idx]
+    selected_row_data = df_display.iloc[row_idx]
 
-    # Force update session state variables so the widgets below update instantly
     st.session_state["calc_tk"] = str(selected_row_data["Ticker"])
     st.session_state["calc_en"] = float(
         str(selected_row_data["Price"]).replace("$", "").replace(",", "")
     )
     st.session_state["calc_st"] = float(
         str(selected_row_data["Stop Loss ($)"])
-        .replace("$", "")
-        .replace(",", "")
+        .replace("$", "").replace(",", "")
     )
     st.session_state["calc_tp"] = float(
         str(selected_row_data["Take Profit ($)"])
-        .replace("$", "")
-        .replace(",", "")
+        .replace("$", "").replace(",", "")
     )
     st.session_state["calc_sh"] = int(selected_row_data["Shares"])
+    st.rerun()
 
-  # Ensure session state variables exist as fallback if nothing is initialized yet
+  # Ensure fallback initialization if keys don't exist yet
   if "calc_tk" not in st.session_state:
-    df_d = st.session_state["res_df"]
-    st.session_state["calc_tk"] = str(df_d.iloc[0]["Ticker"])
+    st.session_state["calc_tk"] = str(df_display.iloc[0]["Ticker"])
     st.session_state["calc_en"] = float(
-        str(df_d.iloc[0]["Price"]).replace("$", "").replace(",", "")
+        str(df_display.iloc[0]["Price"]).replace("$", "").replace(",", "")
     )
     st.session_state["calc_st"] = float(
-        str(df_d.iloc[0]["Stop Loss ($)"]).replace("$", "").replace(",", "")
+        str(df_display.iloc[0]["Stop Loss ($)"]).replace("$", "").replace(",", "")
     )
     st.session_state["calc_tp"] = float(
-        str(df_d.iloc[0]["Take Profit ($)"]).replace("$", "").replace(",", "")
+        str(df_display.iloc[0]["Take Profit ($)"]).replace("$", "").replace(",", "")
     )
-    st.session_state["calc_sh"] = int(df_d.iloc[0]["Shares"])
+    st.session_state["calc_sh"] = int(df_display.iloc[0]["Shares"])
 
   # --- SECTION 3: INTEGRATED EXECUTION PLAN & CALCULATOR ---
   st.markdown("---")
@@ -347,8 +351,8 @@ if "res_df" in st.session_state and not st.session_state["res_df"].empty:
       total_capital = calc_shares * calc_entry
 
       st.markdown(f"""
-            **[{calc_ticker.upper()}]** Capital Required: **${total_capital:,.2f}** &nbsp;|&nbsp; Shares: **{calc_shares}**  
-            Total Downside Risk : **${total_risk:,.2f}** (${risk_per_share:.2f}/share)  
+            **[{calc_ticker.upper()}]** Capital Required: **${total_capital:,.2f}**   |   Shares: **{calc_shares}**  
+            Total Downside Risk : **${total_risk:,.2f}**  `(${risk_per_share:.2f}/share)`  
             Total Potential Gain: **${total_reward:,.2f}**  
             Risk / Reward Ratio : **1 : {rr_ratio:.2f}**
             """)
