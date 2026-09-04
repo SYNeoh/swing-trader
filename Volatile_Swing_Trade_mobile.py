@@ -366,9 +366,7 @@ if "res_df" in st.session_state and not st.session_state["res_df"].empty:
       st.markdown(f"Ticker: {calc_ticker.upper()}")
       st.markdown(f"Capital Required: ${total_capital:,.2f}")
       st.markdown(f"Shares: {calc_shares}")
-      st.markdown(
-          f"Total Downside Risk: ${total_risk:,.2f} (${risk_per_share:.2f}/share)"
-      )
+      st.markdown(f"Total Downside Risk: ${total_risk:,.2f} (${risk_per_share:.2f}/share)")
       st.markdown(f"Total Potential Gain: ${total_reward:,.2f}")
       st.markdown(f"Risk / Reward Ratio: 1 : {rr_ratio:.2f}")
   except Exception:
