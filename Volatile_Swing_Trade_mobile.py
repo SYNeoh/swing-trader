@@ -319,12 +319,26 @@ if "res_df" in st.session_state and not st.session_state["res_df"].empty:
   st.markdown("---")
   st.subheader("3. Selected Setup Trade Execution Plan (Auto-Risk Lock)")
 
+
+  # Callback: When Entry changes, automatically adjust Stop Loss to maintain Max Risk Budget ($35)
+  def update_on_entry():
+    new_entry = st.session_state["calc_en"]
+    current_shares = st.session_state["calc_sh"]
+    if current_shares > 0:
+      # Required risk per share to match risk_budget (e.g. 35) exactly
+      risk_per_share_needed = risk_budget / current_shares
+      st.session_state["calc_st"] = new_entry - risk_per_share_needed
+
+
   col1, col2, col3, col4, col5 = st.columns(5)
   with col1:
     calc_ticker = st.text_input("Ticker", key="calc_tk")
   with col2:
     calc_entry = st.number_input(
-        "Entry Price ($)", format="%.2f", key="calc_en"
+        "Entry Price ($)",
+        format="%.2f",
+        key="calc_en",
+        on_change=update_on_entry,
     )
   with col3:
     calc_stop = st.number_input("Stop Loss ($)", format="%.2f", key="calc_st")
@@ -337,17 +351,6 @@ if "res_df" in st.session_state and not st.session_state["res_df"].empty:
         "Position (Shares)", min_value=1, key="calc_sh"
     )
 
-  # Auto-adjust shares to respect Max Trade Risk Cap ($35) if Entry changes
-  try:
-    risk_per_share = calc_entry - calc_stop
-    if risk_per_share > 0:
-      # Automatically compute max allowable shares based on the risk budget ($35)
-      calc_shares = max(1, int(risk_budget // risk_per_share))
-      # Update session state shares so the number input matches
-      st.session_state["calc_sh"] = calc_shares
-  except Exception:
-    pass
-
   try:
     risk_per_share = calc_entry - calc_stop
     if risk_per_share <= 0:
@@ -359,12 +362,14 @@ if "res_df" in st.session_state and not st.session_state["res_df"].empty:
       rr_ratio = reward_per_share / risk_per_share
       total_capital = calc_shares * calc_entry
 
-      # Clean line-by-line formatting without messy markdown bugs
-      st.markdown(f"""
-            **[{calc_ticker.upper()}]** Capital Required: **${total_capital:,.2f}**  
-            Shares: **{calc_shares}** | Total Downside Risk: **${total_risk:,.2f}** (${risk_per_share:.2f}/share)  
-            Total Potential Gain: **${total_reward:,.2f}**  
-            Risk / Reward Ratio: **1 : {rr_ratio:.2f}**
-            """)
+      # Exactly 6 lines of clean plain text with uniform sizing and zero asterisks
+      st.markdown(f"Ticker: {calc_ticker.upper()}")
+      st.markdown(f"Capital Required: ${total_capital:,.2f}")
+      st.markdown(f"Shares: {calc_shares}")
+      st.markdown(
+          f"Total Downside Risk: ${total_risk:,.2f} (${risk_per_share:.2f}/share)"
+      )
+      st.markdown(f"Total Potential Gain: ${total_reward:,.2f}")
+      st.markdown(f"Risk / Reward Ratio: 1 : {rr_ratio:.2f}")
   except Exception:
     st.info("Fill out the execution fields above to preview your risk metrics.")
