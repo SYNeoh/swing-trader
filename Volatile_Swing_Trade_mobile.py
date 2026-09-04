@@ -265,13 +265,11 @@ if "res_df" in st.session_state and not st.session_state["res_df"].empty:
       use_container_width=True,
   )
 
-  # Initialize tracking variables if missing
   if "last_selected_row" not in st.session_state:
     st.session_state["last_selected_row"] = 0
 
   df_display = st.session_state["res_df"]
 
-  # Safely extract selection
   selected_rows = []
   if event:
     try:
@@ -282,7 +280,6 @@ if "res_df" in st.session_state and not st.session_state["res_df"].empty:
       except Exception:
         pass
 
-  # Only update default calculator values if a NEW row is explicitly clicked
   if selected_rows and selected_rows[0] != st.session_state["last_selected_row"]:
     st.session_state["last_selected_row"] = selected_rows[0]
     row_idx = selected_rows[0]
@@ -294,16 +291,17 @@ if "res_df" in st.session_state and not st.session_state["res_df"].empty:
     )
     st.session_state["calc_st"] = float(
         str(selected_row_data["Stop Loss ($)"])
-        .replace("$", "").replace(",", "")
+        .replace("$", "")
+        .replace(",", "")
     )
     st.session_state["calc_tp"] = float(
         str(selected_row_data["Take Profit ($)"])
-        .replace("$", "").replace(",", "")
+        .replace("$", "")
+        .replace(",", "")
     )
     st.session_state["calc_sh"] = int(selected_row_data["Shares"])
     st.rerun()
 
-  # Ensure fallback initialization if keys don't exist yet
   if "calc_tk" not in st.session_state:
     st.session_state["calc_tk"] = str(df_display.iloc[0]["Ticker"])
     st.session_state["calc_en"] = float(
@@ -339,6 +337,17 @@ if "res_df" in st.session_state and not st.session_state["res_df"].empty:
         "Position (Shares)", min_value=1, key="calc_sh"
     )
 
+  # Auto-adjust shares to respect Max Trade Risk Cap ($35) if Entry changes
+  try:
+    risk_per_share = calc_entry - calc_stop
+    if risk_per_share > 0:
+      # Automatically compute max allowable shares based on the risk budget ($35)
+      calc_shares = max(1, int(risk_budget // risk_per_share))
+      # Update session state shares so the number input matches
+      st.session_state["calc_sh"] = calc_shares
+  except Exception:
+    pass
+
   try:
     risk_per_share = calc_entry - calc_stop
     if risk_per_share <= 0:
@@ -350,11 +359,12 @@ if "res_df" in st.session_state and not st.session_state["res_df"].empty:
       rr_ratio = reward_per_share / risk_per_share
       total_capital = calc_shares * calc_entry
 
+      # Clean line-by-line formatting without messy markdown bugs
       st.markdown(f"""
-            **[{calc_ticker.upper()}]** Capital Required: **${total_capital:,.2f}**   |   Shares: **{calc_shares}**  
-            Total Downside Risk : **${total_risk:,.2f}**  `(${risk_per_share:.2f}/share)`  
+            **[{calc_ticker.upper()}]** Capital Required: **${total_capital:,.2f}**  
+            Shares: **{calc_shares}** | Total Downside Risk: **${total_risk:,.2f}** (${risk_per_share:.2f}/share)  
             Total Potential Gain: **${total_reward:,.2f}**  
-            Risk / Reward Ratio : **1 : {rr_ratio:.2f}**
+            Risk / Reward Ratio: **1 : {rr_ratio:.2f}**
             """)
   except Exception:
     st.info("Fill out the execution fields above to preview your risk metrics.")
