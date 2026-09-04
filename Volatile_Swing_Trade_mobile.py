@@ -361,7 +361,7 @@ if "res_df" in st.session_state and not st.session_state["res_df"].empty:
       rr_ratio = reward_per_share / risk_per_share
       total_capital = calc_shares * calc_entry
 
-      # Exactly 6 lines of clean plain text with uniform sizing and escaped dollar signs (no math-mode rendering)
+      # Exactly 6 lines of clean plain text with uniform sizing and per-share stats for both risk and gain
       st.markdown(f"Ticker: {calc_ticker.upper()}")
       st.markdown(f"Capital Required: \${total_capital:,.2f}")
       st.markdown(f"Shares: {calc_shares}")
@@ -369,7 +369,10 @@ if "res_df" in st.session_state and not st.session_state["res_df"].empty:
           f"Total Downside Risk: \${total_risk:,.2f}"
           f" (\${risk_per_share:.2f}/share)"
       )
-      st.markdown(f"Total Potential Gain: \${total_reward:,.2f}")
+      st.markdown(
+          f"Total Potential Gain: \${total_reward:,.2f}"
+          f" (\${reward_per_share:.2f}/share)"
+      )
       st.markdown(f"Risk / Reward Ratio: 1 : {rr_ratio:.2f}")
   except Exception:
     st.info("Fill out the execution fields above to preview your risk metrics.")
