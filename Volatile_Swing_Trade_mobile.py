@@ -181,16 +181,22 @@ if st.sidebar.button("🔍 Run Screener Scan", type="primary"):
             if rvol < min_rvol_req:
               continue
 
+          # Dynamic ATR-Based Target Entry Range Calculation
+          target_entry_upper = price - (0.5 * atr)
+          target_entry_lower = price - (1.5 * atr)
+          target_entry_str = f"${target_entry_lower:.2f}-${target_entry_upper:.2f}"
+
+          # Stop loss and take profit anchored to the lowest entry point
           stop_distance = atr_mult * atr
           if stop_distance <= 0 or np.isnan(stop_distance):
             stop_distance = price * 0.02
 
-          stop_loss = price - stop_distance
+          stop_loss = target_entry_lower - stop_distance
           shares = max(1, int(risk_budget // stop_distance))
           actual_risk = shares * stop_distance
 
-          take_profit = price + (min_rr_req * stop_distance)
-          actual_rr = (take_profit - price) / stop_distance
+          take_profit = target_entry_lower + (min_rr_req * stop_distance)
+          actual_rr = (take_profit - target_entry_lower) / stop_distance
 
           peaks, _ = find_peaks(df["High"].values, distance=15)
           overhead_peaks = sorted(
@@ -219,6 +225,7 @@ if st.sidebar.button("🔍 Run Screener Scan", type="primary"):
               "Slow MA": f"${slow_ma_val:.2f}",
               "Dist (%)": f"{dist_from_fast_pct:+.2f}%",
               "Volatility (%)": f"{volatility_pct:.2f}%",
+              "Target Entry": target_entry_str,
               "Stop Loss ($)": f"${stop_loss:.2f}",
               "Take Profit ($)": f"${take_profit:.2f}",
               "R:R Ratio": f"1:{actual_rr:.2f}",
@@ -235,9 +242,18 @@ if st.sidebar.button("🔍 Run Screener Scan", type="primary"):
     st.session_state["res_df"] = pd.DataFrame(results)
     first_row = st.session_state["res_df"].iloc[0]
     st.session_state["calc_tk"] = str(first_row["Ticker"])
-    st.session_state["calc_en"] = float(
-        str(first_row["Price"]).replace("$", "").replace(",", "")
-    )
+
+    target_entry_str = str(first_row["Target Entry"])
+    if "-" in target_entry_str:
+      lowest_entry = float(
+          target_entry_str.split("-")[0].replace("$", "").strip()
+      )
+    else:
+      lowest_entry = float(
+          str(first_row["Price"]).replace("$", "").replace(",", "")
+      )
+
+    st.session_state["calc_en"] = lowest_entry
     st.session_state["calc_st"] = float(
         str(first_row["Stop Loss ($)"]).replace("$", "").replace(",", "")
     )
@@ -282,15 +298,23 @@ if "res_df" in st.session_state and not st.session_state["res_df"].empty:
 
   if selected_rows and selected_rows[0] != st.session_state["last_selected_row"]:
     row_idx = selected_rows[0]
-    # Safety check to prevent out-of-bounds IndexError if the dataframe changed size
     if row_idx < len(df_display):
       st.session_state["last_selected_row"] = row_idx
       selected_row_data = df_display.iloc[row_idx]
 
       st.session_state["calc_tk"] = str(selected_row_data["Ticker"])
-      st.session_state["calc_en"] = float(
-          str(selected_row_data["Price"]).replace("$", "").replace(",", "")
-      )
+
+      target_entry_str = str(selected_row_data["Target Entry"])
+      if "-" in target_entry_str:
+        lowest_entry = float(
+            target_entry_str.split("-")[0].replace("$", "").strip()
+        )
+      else:
+        lowest_entry = float(
+            str(selected_row_data["Price"]).replace("$", "").replace(",", "")
+        )
+
+      st.session_state["calc_en"] = lowest_entry
       st.session_state["calc_st"] = float(
           str(selected_row_data["Stop Loss ($)"])
           .replace("$", "")
@@ -305,24 +329,33 @@ if "res_df" in st.session_state and not st.session_state["res_df"].empty:
       st.rerun()
 
   if "calc_tk" not in st.session_state:
-    st.session_state["calc_tk"] = str(df_display.iloc[0]["Ticker"])
-    st.session_state["calc_en"] = float(
-        str(df_display.iloc[0]["Price"]).replace("$", "").replace(",", "")
-    )
+    first_row = df_display.iloc[0]
+    st.session_state["calc_tk"] = str(first_row["Ticker"])
+
+    target_entry_str = str(first_row["Target Entry"])
+    if "-" in target_entry_str:
+      lowest_entry = float(
+          target_entry_str.split("-")[0].replace("$", "").strip()
+      )
+    else:
+      lowest_entry = float(
+          str(first_row["Price"]).replace("$", "").replace(",", "")
+      )
+
+    st.session_state["calc_en"] = lowest_entry
     st.session_state["calc_st"] = float(
-        str(df_display.iloc[0]["Stop Loss ($)"]).replace("$", "").replace(",", "")
+        str(first_row["Stop Loss ($)"]).replace("$", "").replace(",", "")
     )
     st.session_state["calc_tp"] = float(
-        str(df_display.iloc[0]["Take Profit ($)"]).replace("$", "").replace(",", "")
+        str(first_row["Take Profit ($)"]).replace("$", "").replace(",", "")
     )
-    st.session_state["calc_sh"] = int(df_display.iloc[0]["Shares"])
+    st.session_state["calc_sh"] = int(first_row["Shares"])
 
   # --- SECTION 3: INTEGRATED EXECUTION PLAN & CALCULATOR ---
   st.markdown("---")
   st.subheader("3. Selected Setup Trade Execution Plan (Auto-Risk Lock)")
 
 
-  # Callback: When Entry changes, automatically adjust Stop Loss to maintain Max Risk Budget ($35)
   def update_on_entry():
     new_entry = st.session_state["calc_en"]
     current_shares = st.session_state["calc_sh"]
@@ -363,17 +396,24 @@ if "res_df" in st.session_state and not st.session_state["res_df"].empty:
       rr_ratio = reward_per_share / risk_per_share
       total_capital = calc_shares * calc_entry
 
-      # Exactly 6 lines of clean plain text with uniform sizing and per-share stats for both risk and gain
+      # Calculate % loss and % gain relative to total capital
+      pct_loss = (total_risk / total_capital) * 100 if total_capital > 0 else 0
+      pct_gain = (
+          (total_reward / total_capital) * 100 if total_capital > 0 else 0
+      )
+
       st.markdown(f"Ticker: {calc_ticker.upper()}")
       st.markdown(f"Capital Required: \${total_capital:,.2f}")
       st.markdown(f"Shares: {calc_shares}")
       st.markdown(
-          f"Total Downside Risk: \${total_risk:,.2f}"
-          f" (\${risk_per_share:.2f}/share)"
+          f"Total Downside Risk: <span style='color:red;'>\${total_risk:,.2f}"
+          f" ({pct_loss:.2f}%)</span> (\${risk_per_share:.2f}/share)",
+          unsafe_allow_html=True,
       )
       st.markdown(
-          f"Total Potential Gain: \${total_reward:,.2f}"
-          f" (\${reward_per_share:.2f}/share)"
+          f"Total Potential Gain: <span style='color:green;'>\${total_reward:,.2f}"
+          f" (+{pct_gain:.2f}%)</span> (\${reward_per_share:.2f}/share)",
+          unsafe_allow_html=True,
       )
       st.markdown(f"Risk / Reward Ratio: 1 : {rr_ratio:.2f}")
   except Exception:
