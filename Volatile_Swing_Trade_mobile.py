@@ -252,19 +252,28 @@ if "res_df" in st.session_state and not st.session_state["res_df"].empty:
       use_container_width=True,
   )
 
-  # Default selection values
-  sel_ticker = "GIS"
-  sel_price = 39.26
-  sel_stop = 37.46
-  sel_target = 42.86
-  sel_shares = 19
+  # Fallback defaults
+  df_display = st.session_state["res_df"]
+  sel_ticker = df_display.iloc[0]["Ticker"]
+  sel_price = float(str(df_display.iloc[0]["Price"]).replace("$", ""))
+  sel_stop = float(str(df_display.iloc[0]["Stop Loss ($)"]).replace("$", ""))
+  sel_target = float(str(df_display.iloc[0]["Take Profit ($)"]).replace("$", ""))
+  sel_shares = int(df_display.iloc[0]["Shares"])
 
-  # Check if user clicked a row
-  selected_rows = event.selection.rows if event else []
+  # Safely extract selection from event object/dict
+  selected_rows = []
+  if event:
+    try:
+      selected_rows = event.selection.rows
+    except Exception:
+      try:
+        selected_rows = event["selection"]["rows"]
+      except Exception:
+        pass
+
   if selected_rows:
     row_idx = selected_rows[0]
-    selected_row_data = st.session_state["res_df"].iloc[row_idx]
-
+    selected_row_data = df_display.iloc[row_idx]
     sel_ticker = str(selected_row_data["Ticker"])
     sel_price = float(
         str(selected_row_data["Price"]).replace("$", "").replace(",", "")
@@ -318,7 +327,7 @@ if "res_df" in st.session_state and not st.session_state["res_df"].empty:
 
       st.markdown(f"""
             **[{calc_ticker.upper()}]** Capital Required: **${total_capital:,.2f}** &nbsp;|&nbsp; Shares: **{calc_shares}**  
-            Total Downside Risk : **${total_risk:,.2f}** &nbsp;(`$`.format({risk_per_share:.2f})/share)  
+            Total Downside Risk : **${total_risk:,.2f}** (${risk_per_share:.2f}/share)  
             Total Potential Gain: **${total_reward:,.2f}**  
             Risk / Reward Ratio : **1 : {rr_ratio:.2f}**
             """)
