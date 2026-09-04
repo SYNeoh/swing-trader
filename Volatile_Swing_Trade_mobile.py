@@ -222,7 +222,7 @@ if st.sidebar.button("🔍 Run Screener Scan", type="primary"):
               "Stop Loss ($)": f"${stop_loss:.2f}",
               "Take Profit ($)": f"${take_profit:.2f}",
               "R:R Ratio": f"1:{actual_rr:.2f}",
-              "Shares": shares,
+              "Shares": int(shares),
               "Max Risk ($)": f"${actual_risk:.2f}",
               "Resistance": resistance_status,
           })
@@ -232,49 +232,95 @@ if st.sidebar.button("🔍 Run Screener Scan", type="primary"):
       continue
 
   if results:
-    res_df = pd.DataFrame(results)
+    st.session_state["res_df"] = pd.DataFrame(results)
     st.success(
-        f"Scan complete! Scanned S&P 500 and found {len(res_df)} matching"
-        " setups."
+        f"Scan complete! Scanned S&P 500 and found"
+        f" {len(st.session_state['res_df'])} matching setups."
     )
-    st.dataframe(res_df, use_container_width=True)
   else:
+    st.session_state["res_df"] = pd.DataFrame()
     st.warning("Scan finished, but no setups matched your criteria.")
 
-# --- SECTION 3: INTEGRATED EXECUTION PLAN & CALCULATOR ---
-st.markdown("---")
-st.subheader("3. Selected Setup Trade Execution Plan (Auto-Risk Lock)")
-
-col1, col2, col3, col4, col5 = st.columns(5)
-with col1:
-  calc_ticker = st.text_input("Ticker", value="GIS")
-with col2:
-  calc_entry = st.number_input("Entry Price ($)", value=39.26, format="%.2f")
-with col3:
-  calc_stop = st.number_input("Stop Loss ($)", value=37.46, format="%.2f")
-with col4:
-  calc_target = st.number_input(
-      "Take Profit ($)", value=42.86, format="%.2f"
+# --- DISPLAY TABLE & HANDLE ROW SELECTION ---
+if "res_df" in st.session_state and not st.session_state["res_df"].empty:
+  st.markdown("### Screener Results (Click a row to select setup)")
+  event = st.dataframe(
+      st.session_state["res_df"],
+      key="screener_table",
+      selection_mode="single-row",
+      on_select="rerun",
+      use_container_width=True,
   )
-with col5:
-  calc_shares = st.number_input("Position (Shares)", value=19, min_value=1)
 
-try:
-  risk_per_share = calc_entry - calc_stop
-  if risk_per_share <= 0:
-    st.error("⚠️ Error: Stop loss must be lower than Entry price.")
-  else:
-    reward_per_share = calc_target - calc_entry
-    total_risk = calc_shares * risk_per_share
-    total_reward = calc_shares * reward_per_share
-    rr_ratio = reward_per_share / risk_per_share
-    total_capital = calc_shares * calc_entry
+  # Default selection values
+  sel_ticker = "GIS"
+  sel_price = 39.26
+  sel_stop = 37.46
+  sel_target = 42.86
+  sel_shares = 19
 
-    st.markdown(f"""
-        **[{calc_ticker.upper()}]** Capital Required: **${total_capital:,.2f}** &nbsp;|&nbsp; Shares: **{calc_shares}**  
-        Total Downside Risk : **${total_risk:,.2f}** &nbsp;(`$`.format({risk_per_share:.2f})/share)  
-        Total Potential Gain: **${total_reward:,.2f}**  
-        Risk / Reward Ratio : **1 : {rr_ratio:.2f}**
-        """)
-except Exception:
-  st.info("Fill out the execution fields above to preview your risk metrics.")
+  # Check if user clicked a row
+  selected_rows = event.selection.rows if event else []
+  if selected_rows:
+    row_idx = selected_rows[0]
+    selected_row_data = st.session_state["res_df"].iloc[row_idx]
+
+    sel_ticker = str(selected_row_data["Ticker"])
+    sel_price = float(
+        str(selected_row_data["Price"]).replace("$", "").replace(",", "")
+    )
+    sel_stop = float(
+        str(selected_row_data["Stop Loss ($)"])
+        .replace("$", "")
+        .replace(",", "")
+    )
+    sel_target = float(
+        str(selected_row_data["Take Profit ($)"])
+        .replace("$", "")
+        .replace(",", "")
+    )
+    sel_shares = int(selected_row_data["Shares"])
+
+  # --- SECTION 3: INTEGRATED EXECUTION PLAN & CALCULATOR ---
+  st.markdown("---")
+  st.subheader("3. Selected Setup Trade Execution Plan (Auto-Risk Lock)")
+
+  col1, col2, col3, col4, col5 = st.columns(5)
+  with col1:
+    calc_ticker = st.text_input("Ticker", value=sel_ticker, key="calc_tk")
+  with col2:
+    calc_entry = st.number_input(
+        "Entry Price ($)", value=sel_price, format="%.2f", key="calc_en"
+    )
+  with col3:
+    calc_stop = st.number_input(
+        "Stop Loss ($)", value=sel_stop, format="%.2f", key="calc_st"
+    )
+  with col4:
+    calc_target = st.number_input(
+        "Take Profit ($)", value=sel_target, format="%.2f", key="calc_tp"
+    )
+  with col5:
+    calc_shares = st.number_input(
+        "Position (Shares)", value=sel_shares, min_value=1, key="calc_sh"
+    )
+
+  try:
+    risk_per_share = calc_entry - calc_stop
+    if risk_per_share <= 0:
+      st.error("⚠️ Error: Stop loss must be lower than Entry price.")
+    else:
+      reward_per_share = calc_target - calc_entry
+      total_risk = calc_shares * risk_per_share
+      total_reward = calc_shares * reward_per_share
+      rr_ratio = reward_per_share / risk_per_share
+      total_capital = calc_shares * calc_entry
+
+      st.markdown(f"""
+            **[{calc_ticker.upper()}]** Capital Required: **${total_capital:,.2f}** &nbsp;|&nbsp; Shares: **{calc_shares}**  
+            Total Downside Risk : **${total_risk:,.2f}** &nbsp;(`$`.format({risk_per_share:.2f})/share)  
+            Total Potential Gain: **${total_reward:,.2f}**  
+            Risk / Reward Ratio : **1 : {rr_ratio:.2f}**
+            """)
+  except Exception:
+    st.info("Fill out the execution fields above to preview your risk metrics.")
