@@ -233,8 +233,22 @@ if st.sidebar.button("🔍 Run Screener Scan", type="primary"):
 
   if results:
     st.session_state["res_df"] = pd.DataFrame(results)
+    # Initialize default selection to the first row on new scan
+    first_row = st.session_state["res_df"].iloc[0]
+    st.session_state["calc_tk"] = str(first_row["Ticker"])
+    st.session_state["calc_en"] = float(
+        str(first_row["Price"]).replace("$", "").replace(",", "")
+    )
+    st.session_state["calc_st"] = float(
+        str(first_row["Stop Loss ($)"]).replace("$", "").replace(",", "")
+    )
+    st.session_state["calc_tp"] = float(
+        str(first_row["Take Profit ($)"]).replace("$", "").replace(",", "")
+    )
+    st.session_state["calc_sh"] = int(first_row["Shares"])
+
     st.success(
-        f"Scan complete! Scanned S&P 500 and found"
+        f"Scan complete! Scanned and found"
         f" {len(st.session_state['res_df'])} matching setups."
     )
   else:
@@ -252,14 +266,6 @@ if "res_df" in st.session_state and not st.session_state["res_df"].empty:
       use_container_width=True,
   )
 
-  # Fallback defaults
-  df_display = st.session_state["res_df"]
-  sel_ticker = df_display.iloc[0]["Ticker"]
-  sel_price = float(str(df_display.iloc[0]["Price"]).replace("$", ""))
-  sel_stop = float(str(df_display.iloc[0]["Stop Loss ($)"]).replace("$", ""))
-  sel_target = float(str(df_display.iloc[0]["Take Profit ($)"]).replace("$", ""))
-  sel_shares = int(df_display.iloc[0]["Shares"])
-
   # Safely extract selection from event object/dict
   selected_rows = []
   if event:
@@ -273,22 +279,39 @@ if "res_df" in st.session_state and not st.session_state["res_df"].empty:
 
   if selected_rows:
     row_idx = selected_rows[0]
-    selected_row_data = df_display.iloc[row_idx]
-    sel_ticker = str(selected_row_data["Ticker"])
-    sel_price = float(
+    selected_row_data = st.session_state["res_df"].iloc[row_idx]
+
+    # Force update session state variables so the widgets below update instantly
+    st.session_state["calc_tk"] = str(selected_row_data["Ticker"])
+    st.session_state["calc_en"] = float(
         str(selected_row_data["Price"]).replace("$", "").replace(",", "")
     )
-    sel_stop = float(
+    st.session_state["calc_st"] = float(
         str(selected_row_data["Stop Loss ($)"])
         .replace("$", "")
         .replace(",", "")
     )
-    sel_target = float(
+    st.session_state["calc_tp"] = float(
         str(selected_row_data["Take Profit ($)"])
         .replace("$", "")
         .replace(",", "")
     )
-    sel_shares = int(selected_row_data["Shares"])
+    st.session_state["calc_sh"] = int(selected_row_data["Shares"])
+
+  # Ensure session state variables exist as fallback if nothing is initialized yet
+  if "calc_tk" not in st.session_state:
+    df_d = st.session_state["res_df"]
+    st.session_state["calc_tk"] = str(df_d.iloc[0]["Ticker"])
+    st.session_state["calc_en"] = float(
+        str(df_d.iloc[0]["Price"]).replace("$", "").replace(",", "")
+    )
+    st.session_state["calc_st"] = float(
+        str(df_d.iloc[0]["Stop Loss ($)"]).replace("$", "").replace(",", "")
+    )
+    st.session_state["calc_tp"] = float(
+        str(df_d.iloc[0]["Take Profit ($)"]).replace("$", "").replace(",", "")
+    )
+    st.session_state["calc_sh"] = int(df_d.iloc[0]["Shares"])
 
   # --- SECTION 3: INTEGRATED EXECUTION PLAN & CALCULATOR ---
   st.markdown("---")
@@ -296,22 +319,20 @@ if "res_df" in st.session_state and not st.session_state["res_df"].empty:
 
   col1, col2, col3, col4, col5 = st.columns(5)
   with col1:
-    calc_ticker = st.text_input("Ticker", value=sel_ticker, key="calc_tk")
+    calc_ticker = st.text_input("Ticker", key="calc_tk")
   with col2:
     calc_entry = st.number_input(
-        "Entry Price ($)", value=sel_price, format="%.2f", key="calc_en"
+        "Entry Price ($)", format="%.2f", key="calc_en"
     )
   with col3:
-    calc_stop = st.number_input(
-        "Stop Loss ($)", value=sel_stop, format="%.2f", key="calc_st"
-    )
+    calc_stop = st.number_input("Stop Loss ($)", format="%.2f", key="calc_st")
   with col4:
     calc_target = st.number_input(
-        "Take Profit ($)", value=sel_target, format="%.2f", key="calc_tp"
+        "Take Profit ($)", format="%.2f", key="calc_tp"
     )
   with col5:
     calc_shares = st.number_input(
-        "Position (Shares)", value=sel_shares, min_value=1, key="calc_sh"
+        "Position (Shares)", min_value=1, key="calc_sh"
     )
 
   try:
