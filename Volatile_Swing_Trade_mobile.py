@@ -362,6 +362,10 @@ if "res_df" in st.session_state and not st.session_state["res_df"].empty:
     if current_shares > 0:
       risk_per_share_needed = risk_budget / current_shares
       st.session_state["calc_st"] = new_entry - risk_per_share_needed
+      # Automatically adjust Take Profit based on the target R:R ratio
+      st.session_state["calc_tp"] = new_entry + (
+          min_rr_req * risk_per_share_needed
+      )
 
 
   col1, col2, col3, col4, col5 = st.columns(5)
@@ -382,7 +386,10 @@ if "res_df" in st.session_state and not st.session_state["res_df"].empty:
     )
   with col5:
     calc_shares = st.number_input(
-        "Position (Shares)", min_value=1, key="calc_sh"
+        "Position (Shares)",
+        min_value=1,
+        key="calc_sh",
+        on_change=update_on_entry,
     )
 
   try:
@@ -407,7 +414,7 @@ if "res_df" in st.session_state and not st.session_state["res_df"].empty:
       st.markdown(f"Shares: {calc_shares}")
       st.markdown(
           f"Total Downside Risk: <span style='color:red;'>\${total_risk:,.2f}"
-          f" ({pct_loss:.2f}%)</span> (\${risk_per_share:.2f}/share)",
+          f" (-{pct_loss:.2f}%)</span> (\${risk_per_share:.2f}/share)",
           unsafe_allow_html=True,
       )
       st.markdown(
