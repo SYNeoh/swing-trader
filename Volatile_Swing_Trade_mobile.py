@@ -66,7 +66,10 @@ min_rr_req = st.sidebar.number_input("Min Target R:R Ratio", value=2.0)
 min_mcap_req = st.sidebar.number_input("Min Market Cap ($B)", value=20.0)
 min_vol_req = st.sidebar.number_input("Min ATR Volatility (%)", value=2.5)
 min_volume_m = st.sidebar.number_input("Min Avg Volume (M)", value=5.0)
-min_rvol_req = st.sidebar.number_input("Min Relative Volume (RVOL)", value=1.2)
+min_rvol_req = st.sidebar.number_input("Min 1D RVOL", value=1.2)
+min_rvol_3d_req = st.sidebar.number_input(
+    "Min 3D Avg RVOL", value=1.1
+)  # Multi-day Volume Filter
 require_trend = st.sidebar.checkbox(
     "Require Uptrend (Fast MA > Slow MA)", value=True
 )
@@ -141,8 +144,26 @@ if st.sidebar.button("🔍 Run Screener Scan", type="primary"):
           df["VolAvg20Raw"] = df["Volume"].rolling(window=20).mean()
           df["RVOL"] = df["Volume"] / df["VolAvg20Raw"]
 
+          # Multi-Day Volume Tracking Calculations
+          df["RVOL_3D_Avg"] = df["RVOL"].rolling(window=3).mean()
+
+          df["Vol_Rising"] = (df["Volume"] > df["Volume"].shift(1)) & (
+              df["Volume"].shift(1) > df["Volume"].shift(2)
+          )
+          df["Vol_Drying"] = (df["Volume"] < df["Volume"].shift(1)) & (
+              df["Volume"].shift(1) < df["Volume"].shift(2)
+          )
+
           df = df.dropna(
-              subset=["Close", "FastMA", "SlowMA", "ATR", "AvgVol20", "RVOL"]
+              subset=[
+                  "Close",
+                  "FastMA",
+                  "SlowMA",
+                  "ATR",
+                  "AvgVol20",
+                  "RVOL",
+                  "RVOL_3D_Avg",
+              ]
           )
           if df.empty:
             continue
@@ -154,6 +175,13 @@ if st.sidebar.button("🔍 Run Screener Scan", type="primary"):
           atr = float(latest["ATR"])
           avg_vol_m = float(latest["AvgVol20"])
           rvol = float(latest["RVOL"])
+          rvol_3d = float(latest["RVOL_3D_Avg"])
+
+          vol_pattern = "Steady"
+          if latest["Vol_Rising"]:
+            vol_pattern = "Expanding 🔥"
+          elif latest["Vol_Drying"]:
+            vol_pattern = "Drying Up 📉"
 
           dist_from_fast_pct = ((price - fast_ma_val) / fast_ma_val) * 100.0
           volatility_pct = (atr / price) * 100.0
@@ -179,6 +207,8 @@ if st.sidebar.button("🔍 Run Screener Scan", type="primary"):
             if avg_vol_m < min_volume_m:
               continue
             if rvol < min_rvol_req:
+              continue
+            if rvol_3d < min_rvol_3d_req:
               continue
 
           # Dynamic ATR-Based Target Entry Range Calculation
@@ -220,7 +250,9 @@ if st.sidebar.button("🔍 Run Screener Scan", type="primary"):
               "Price": f"${price:.2f}",
               "M-Cap ($B)": f"${mcap_b:.1f}B",
               "Avg Vol (M)": f"{avg_vol_m:.1f}M",
-              "RVOL": f"{rvol:.2f}x",
+              "1D RVOL": f"{rvol:.2f}x",
+              "3D RVOL": f"{rvol_3d:.2f}x",
+              "Vol Pattern": vol_pattern,
               "Fast MA": f"${fast_ma_val:.2f}",
               "Slow MA": f"${slow_ma_val:.2f}",
               "Dist (%)": f"{dist_from_fast_pct:+.2f}%",
@@ -403,7 +435,6 @@ if "res_df" in st.session_state and not st.session_state["res_df"].empty:
       rr_ratio = reward_per_share / risk_per_share
       total_capital = calc_shares * calc_entry
 
-      # Calculate % loss and % gain relative to total capital
       pct_loss = (total_risk / total_capital) * 100 if total_capital > 0 else 0
       pct_gain = (
           (total_reward / total_capital) * 100 if total_capital > 0 else 0
