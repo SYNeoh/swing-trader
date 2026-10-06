@@ -12,26 +12,40 @@ st.title("📊 Volatility Swing Trader & Risk Manager")
 
 @st.cache_data
 def fetch_sp500_tickers():
-  try:
-    url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-    tables = pd.read_html(url)
-    df = tables[0]
-    tickers = df["Symbol"].tolist()
-    tickers = [str(t).replace(".", "-").strip() for t in tickers]
-    if len(tickers) > 400:
-      return tickers
-  except Exception:
-    pass
+  sources = [
+      "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv",
+      "https://raw.githubusercontent.com/hub208/S-P500-Symbols/master/S%26P500-Symbols.csv",
+  ]
 
-  try:
-    url = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv"
-    df = pd.read_csv(url)
-    tickers = df["Symbol"].dropna().tolist()
-    return [str(t).replace(".", "-").strip() for t in tickers]
-  except Exception:
-    pass
+  for url in sources:
+    try:
+      df = pd.read_csv(url)
+      col = next(
+          (c for c in df.columns if c.lower() in ["symbol", "ticker"]),
+          None,
+      )
+      if col:
+        tickers = [
+            str(t).replace(".", "-").strip() for t in df[col].dropna().tolist()
+        ]
+        if len(tickers) > 400:
+          return tickers
+    except Exception:
+      continue
 
-  return ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD"]
+  return [
+      "AMZN",
+      "MSFT",
+      "AAPL",
+      "NVDA",
+      "GOOGL",
+      "META",
+      "TSLA",
+      "AMD",
+      "NFLX",
+      "PLTR",
+      "AVGO",
+  ]
 
 
 # --- SIDEBAR CONFIGURATION ---
@@ -45,36 +59,37 @@ if scan_target == "Custom Watchlist":
       "Enter Tickers (comma-separated)",
       "NVDA, TSLA, META, AAPL, MSFT, AMZN, AMD, NFLX, PLTR, AVGO",
   )
-  tickers = [t.strip().upper() for t in watchlist_input.split(",")]
+  tickers = [t.strip().upper() for t in watchlist_input.split(",") if t.strip()]
 else:
   tickers = fetch_sp500_tickers()
 
 bypass_filters = st.sidebar.checkbox("Bypass Filters", value=False)
 
 st.sidebar.header("2. Strategy Criteria Filters")
-fast_p = st.sidebar.number_input("Fast MA Period", value=20)
-slow_p = st.sidebar.number_input("Slow MA Period", value=50)
+fast_p = st.sidebar.number_input("Fast EMA Period", value=8)
+slow_p = st.sidebar.number_input("Slow EMA Period", value=21)
 min_dist_pct = st.sidebar.number_input(
-    "Min Price Distance to Fast MA (%)", value=-2.0
+    "Min Price Distance to Fast EMA (%)", value=-5.0
 )
 max_dist_pct = st.sidebar.number_input(
-    "Max Price Distance to Fast MA (%)", value=3.0
+    "Max Price Distance to Fast EMA (%)", value=5.0
 )
 atr_mult = st.sidebar.number_input("Stop Loss ATR Multiplier", value=1.5)
 risk_budget = st.sidebar.number_input("Max Trade Risk Cap ($)", value=35.0)
 min_rr_req = st.sidebar.number_input("Min Target R:R Ratio", value=2.0)
-min_mcap_req = st.sidebar.number_input("Min Market Cap ($B)", value=20.0)
-min_vol_req = st.sidebar.number_input("Min ATR Volatility (%)", value=2.5)
-min_volume_m = st.sidebar.number_input("Min Avg Volume (M)", value=5.0)
-min_rvol_req = st.sidebar.number_input("Min 1D RVOL", value=1.2)
-min_rvol_3d_req = st.sidebar.number_input(
-    "Min 3D Avg RVOL", value=1.1
-)  # Multi-day Volume Filter
+min_mcap_req = st.sidebar.number_input("Min Market Cap ($B)", value=10.0)
+min_vol_req = st.sidebar.number_input("Min ATR Volatility (%)", value=1.5)
+min_volume_m = st.sidebar.number_input("Min Avg Volume (M)", value=2.0)
+min_rvol_req = st.sidebar.number_input("Min 1D RVOL", value=1.0)
+min_rvol_3d_req = st.sidebar.number_input("Min 3D Avg RVOL", value=0.9)
 require_trend = st.sidebar.checkbox(
-    "Require Uptrend (Fast MA > Slow MA)", value=True
+    "Require Fast EMA > Slow EMA (Uptrend Only)", value=True
+)
+filter_blocked = st.sidebar.checkbox(
+    "Filter Out Overhead Resistance Blocks", value=False
 )
 
-if st.sidebar.button("🔍 Run Screener Scan", type="primary"):
+if st.sidebar.button("🔍 Run Screener Scan", type="primary", use_container_width=True):
   st.write(f"Scanning target list of {len(tickers)} stocks...")
   progress_bar = st.progress(0)
   results = []
@@ -83,7 +98,7 @@ if st.sidebar.button("🔍 Run Screener Scan", type="primary"):
       "%Y-%m-%d"
   )
 
-  batch_size = 50
+  batch_size = 30
   for i in range(0, len(tickers), batch_size):
     batch = tickers[i : i + batch_size]
     progress_bar.progress(min((i + batch_size) / len(tickers), 1.0))
@@ -95,7 +110,6 @@ if st.sidebar.button("🔍 Run Screener Scan", type="primary"):
           end=end_date,
           progress=False,
           auto_adjust=True,
-          group_by="ticker",
           threads=True,
       )
 
@@ -104,17 +118,15 @@ if st.sidebar.button("🔍 Run Screener Scan", type="primary"):
 
       for ticker in batch:
         try:
-          if len(batch) == 1:
-            df = data.copy()
-          else:
-            if isinstance(data.columns, pd.MultiIndex):
-              if ticker not in data.columns.levels[0]:
-                continue
+          if isinstance(data.columns, pd.MultiIndex):
+            if ticker in data.columns.levels[1]:
+              df = data.xs(ticker, axis=1, level=1).dropna(how="all").copy()
+            elif ticker in data.columns.levels[0]:
               df = data[ticker].dropna(how="all").copy()
             else:
-              if ticker not in data.columns:
-                continue
-              df = data[[ticker]].copy()
+              continue
+          else:
+            df = data.dropna(how="all").copy()
 
           df = df.dropna(how="all")
           if df.empty or len(df) < max(fast_p, slow_p):
@@ -128,8 +140,9 @@ if st.sidebar.button("🔍 Run Screener Scan", type="primary"):
           ):
             continue
 
-          df["FastMA"] = df["Close"].rolling(window=int(fast_p)).mean()
-          df["SlowMA"] = df["Close"].rolling(window=int(slow_p)).mean()
+          # Calculate Fast & Slow Exponential Moving Averages (EMA)
+          df["FastMA"] = df["Close"].ewm(span=fast_p, adjust=False).mean()
+          df["SlowMA"] = df["Close"].ewm(span=slow_p, adjust=False).mean()
 
           df["PrevClose"] = df["Close"].shift(1)
           df["TR"] = np.maximum(
@@ -146,7 +159,6 @@ if st.sidebar.button("🔍 Run Screener Scan", type="primary"):
 
           # Multi-Day Volume Tracking Calculations
           df["RVOL_3D_Avg"] = df["RVOL"].rolling(window=3).mean()
-
           df["Vol_Rising"] = (df["Volume"] > df["Volume"].shift(1)) & (
               df["Volume"].shift(1) > df["Volume"].shift(2)
           )
@@ -187,13 +199,6 @@ if st.sidebar.button("🔍 Run Screener Scan", type="primary"):
           volatility_pct = (atr / price) * 100.0
 
           mcap_b = 50.0
-          try:
-            tk_obj = yf.Ticker(ticker)
-            mcap_val = tk_obj.info.get("marketCap", 0)
-            if mcap_val:
-              mcap_b = mcap_val / 1e9
-          except Exception:
-            pass
 
           if not bypass_filters:
             if require_trend and not (fast_ma_val > slow_ma_val):
@@ -211,12 +216,11 @@ if st.sidebar.button("🔍 Run Screener Scan", type="primary"):
             if rvol_3d < min_rvol_3d_req:
               continue
 
-          # Dynamic ATR-Based Target Entry Range Calculation
+          # ATR-Based Target Entry Range Calculation
           target_entry_upper = price - (0.5 * atr)
           target_entry_lower = price - (1.5 * atr)
           target_entry_str = f"${target_entry_lower:.2f}-${target_entry_upper:.2f}"
 
-          # Stop loss and take profit anchored to the lowest entry point
           stop_distance = atr_mult * atr
           if stop_distance <= 0 or np.isnan(stop_distance):
             stop_distance = price * 0.02
@@ -245,6 +249,13 @@ if st.sidebar.button("🔍 Run Screener Scan", type="primary"):
             else:
               resistance_status = f"Peak @ ${nearest_peak:.2f}"
 
+          if (
+              not bypass_filters
+              and filter_blocked
+              and "⚠️ Block" in resistance_status
+          ):
+            continue
+
           results.append({
               "Ticker": ticker,
               "Price": f"${price:.2f}",
@@ -253,8 +264,8 @@ if st.sidebar.button("🔍 Run Screener Scan", type="primary"):
               "1D RVOL": f"{rvol:.2f}x",
               "3D RVOL": f"{rvol_3d:.2f}x",
               "Vol Pattern": vol_pattern,
-              "Fast MA": f"${fast_ma_val:.2f}",
-              "Slow MA": f"${slow_ma_val:.2f}",
+              "Fast EMA": f"${fast_ma_val:.2f}",
+              "Slow EMA": f"${slow_ma_val:.2f}",
               "Dist (%)": f"{dist_from_fast_pct:+.2f}%",
               "Volatility (%)": f"{volatility_pct:.2f}%",
               "Target Entry": target_entry_str,
@@ -394,13 +405,12 @@ if "res_df" in st.session_state and not st.session_state["res_df"].empty:
     if current_shares > 0:
       risk_per_share_needed = risk_budget / current_shares
       st.session_state["calc_st"] = new_entry - risk_per_share_needed
-      # Automatically adjust Take Profit based on the target R:R ratio
       st.session_state["calc_tp"] = new_entry + (
           min_rr_req * risk_per_share_needed
       )
 
 
-  col1, col2, col3, col4, col5 = st.columns(5)
+  col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1])
   with col1:
     calc_ticker = st.text_input("Ticker", key="calc_tk")
   with col2:
@@ -440,19 +450,20 @@ if "res_df" in st.session_state and not st.session_state["res_df"].empty:
           (total_reward / total_capital) * 100 if total_capital > 0 else 0
       )
 
-      st.markdown(f"Ticker: {calc_ticker.upper()}")
-      st.markdown(f"Capital Required: \${total_capital:,.2f}")
-      st.markdown(f"Shares: {calc_shares}")
       st.markdown(
-          f"Total Downside Risk: <span style='color:red;'>\${total_risk:,.2f}"
-          f" (-{pct_loss:.2f}%)</span> (\${risk_per_share:.2f}/share)",
+          f"**Ticker**: `{calc_ticker.upper()}` | **Capital Required**: "
+          f" **${total_capital:,.2f}** | **Shares**: `{calc_shares}`"
+      )
+      st.markdown(
+          f"Total Downside Risk: <span style='color:red;'>**${total_risk:,.2f}**"
+          f" (-{pct_loss:.2f}%)</span> (${risk_per_share:.2f}/share)",
           unsafe_allow_html=True,
       )
       st.markdown(
-          f"Total Potential Gain: <span style='color:green;'>\${total_reward:,.2f}"
-          f" (+{pct_gain:.2f}%)</span> (\${reward_per_share:.2f}/share)",
+          f"Total Potential Gain: <span style='color:green;'>**${total_reward:,.2f}**"
+          f" (+{pct_gain:.2f}%)</span> (${reward_per_share:.2f}/share)",
           unsafe_allow_html=True,
       )
-      st.markdown(f"Risk / Reward Ratio: 1 : {rr_ratio:.2f}")
+      st.markdown(f"Risk / Reward Ratio: **1 : {rr_ratio:.2f}**")
   except Exception:
     st.info("Fill out the execution fields above to preview your risk metrics.")
